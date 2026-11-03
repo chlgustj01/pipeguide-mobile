@@ -11970,6 +11970,10 @@ button.m-chip{pointer-events:auto;font-family:inherit;cursor:pointer}
 .m-cmd textarea{width:100%;min-height:68px;resize:none;background:#0a181c;border:1px solid var(--m-line);border-radius:12px;color:var(--m-ink);font-size:15px;line-height:1.45;padding:11px 12px}
 .m-ex{display:flex;flex-wrap:wrap;gap:6px}
 .m-ex button{background:none;border:1px dashed #36565f;color:var(--m-sub);border-radius:999px;padding:6px 10px;font-size:12px;text-align:left}
+.m-fix{display:flex;flex-direction:column;gap:8px;border:1px solid #2c4d55;background:#0e1f24;border-radius:13px;padding:11px 12px}
+.m-tag{font:600 13px var(--m-mono);color:var(--m-accent)}
+.m-quick button{border-style:solid;border-color:#7a4220;color:#ffd2b3;background:#2a160b;font-weight:600}
+.m-reply{font-size:13px;line-height:1.55;white-space:pre-line;color:var(--m-sub);background:#0a181c;border:1px solid var(--m-line);border-radius:11px;padding:10px 12px}
 .m-go{background:var(--m-accent);color:var(--m-accent-ink);border:0;border-radius:13px;padding:15px;font-size:16px;font-weight:700;letter-spacing:-.2px}
 .m-go:disabled{opacity:.5}
 .m-go.ghost{background:var(--m-panel2);color:var(--m-ink);border:1px solid var(--m-line);font-weight:600}
@@ -12055,24 +12059,31 @@ button.m-chip{pointer-events:auto;font-family:inherit;cursor:pointer}
         <div class="m-lbl">② 말로 요청하기</div>
         <div class="m-cmd"><textarea id="mText" rows="2" maxlength="120" aria-label="배관 연결 요청 문장"></textarea></div>
         <div class="m-ex" id="mEx"></div>
+        <div class="m-fix" id="mFix" hidden>
+          <div class="m-lbl">③ 등록한 배관 고쳐 보기</div>
+          <p class="m-note" style="margin:0">지금 고칠 배관 <b class="m-tag" id="mCur"></b> · 번호 없이 말해도 이 배관에 적용됩니다.</p>
+          <div class="m-ex m-quick" id="mQuick"></div>
+        </div>
         <div id="mErr" hidden></div>
-        <button class="m-go" id="mGo" disabled>배관 생성</button>
-        <p class="m-note">문장을 직접 고쳐도 됩니다. 규칙 해석기가 시작 장비 · 목적 장비 · 구경을 읽어 명령으로 바꾸고, 경로는 A* 길찾기가 계산합니다.</p>
+        <button class="m-go" id="mGo" disabled>실행</button>
+        <p class="m-note">문장을 직접 고쳐도 됩니다. 규칙 해석기가 말을 명령(연결 · 구경 변경 · 다른 길 · 되돌리기)으로 바꾸고, 경로는 A* 길찾기가 계산합니다.</p>
       </div>
       <!-- 결과 -->
       <div class="m-pane" data-p="res" hidden>
         <div class="m-lbl">말 → 명령</div>
         <div class="m-json" id="mJson"></div>
-        <div class="m-flow"><b>규칙 해석</b>→<b>장비 확인</b>→<b>A* 경로 탐색</b>→<b>간섭 · 이격 검사</b></div>
-        <div class="m-lbl">기준 통과 후보</div>
+        <div class="m-flow" id="mFlow"></div>
+        <div class="m-lbl" id="mCandLbl">기준 통과 후보</div>
         <div class="m-cands" id="mCands"></div>
         <div class="m-kpis" id="mKpis"></div>
+        <div id="mReply" class="m-reply" hidden></div>
         <div id="mDone" hidden></div>
         <div class="m-btns" id="mBtns">
           <button class="m-go ghost" id="mReplay">▶ 다시 보기</button>
           <button class="m-go" id="mApply">이 안으로 등록</button>
-          <button class="m-go ghost wide" id="mAgain">다른 장비 연결하기</button>
         </div>
+        <div id="mNextWrap" hidden><div class="m-lbl" style="margin-bottom:8px">이어서 해 보기</div><div class="m-ex m-quick" id="mNext"></div></div>
+        <button class="m-go ghost" id="mAgain">다른 장비 연결하기</button>
         <p class="m-note">등록은 지금 이 휴대폰의 체험 모델에만 반영됩니다. 다른 관람객이나 발표용 모델은 바뀌지 않습니다.</p>
       </div>
       <!-- 소개 -->
@@ -12116,8 +12127,8 @@ button.m-chip{pointer-events:auto;font-family:inherit;cursor:pointer}
   const wait = ms => new Promise(r => setTimeout(r, ms));
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const IN = { 15: '½″', 20: '¾″', 25: '1″', 40: '1½″', 50: '2″', 65: '2½″', 80: '3″', 100: '4″' };
-  const SIZES = [15, 20, 25, 40, 50, 80, 100];
-  const S = { dn: 25, cmd: null, busy: false, applied: null, sheet: 'mid' };
+  const SIZES = [15, 20, 25, 40, 50, 80, 100, 150, 200, 300];
+  const S = { dn: 25, cmd: null, busy: false, applied: null, sheet: 'mid', kind: 'connect', cur: null, res: null };
 
   try { Object.keys(localStorage).filter(k => /^(pipeguide\.|pg\.)/.test(k)).forEach(k => localStorage.removeItem(k)); } catch (e) {}
   document.body.classList.add('m-on');
@@ -12161,96 +12172,183 @@ button.m-chip{pointer-events:auto;font-family:inherit;cursor:pointer}
     // 같은 이름 장비(좌 · 우현 빌지 펌프)가 있으면 태그까지 넣어 구분
     const nm = e => EQ.filter(x => speak(x) === speak(e)).length > 1 ? short(e) : speak(e);
     $('mText').value = `${nm(a)}에서 ${nm(b)}까지 ${S.dn}A 배관을 연결해 줘`;
-    validateHint();
+    validateHint(); err('');
   }
   function sizes() {
     $('mSizes').innerHTML = SIZES.map(n => `<button type="button" data-dn="${n}" class="${n === S.dn ? 'on' : ''}">${n}A<small>${IN[n] || ''}</small></button>`).join('');
   }
   $('mSizes').addEventListener('click', e => { const b = e.target.closest('[data-dn]'); if (!b) return; S.dn = +b.dataset.dn; sizes(); compose(); });
   $('mFrom').addEventListener('change', compose); $('mTo').addEventListener('change', compose);
-  $('mText').addEventListener('input', validateHint);
+  $('mText').addEventListener('input', () => { validateHint(); err(''); });
 
   const EXAMPLES = [
+    ['Bilge Water Collecting Tank', 'Main Fire Pump 1', 100, '빌지 탱크에서 소화펌프 1까지 100A로 연결'],
     ['Jockey Pump', 'Main Fire Pump 1', 25],
     ['Bilge Water Collecting Tank', 'Main Fire Pump 2', 50],
     ['FW Cooling Pump', 'Expansion Tank', 40]
   ];
   function examples() {
-    $('mEx').innerHTML = EXAMPLES.map(([a, b, d], i) => `<button type="button" data-i="${i}">${esc(a)} → ${esc(b)} · ${d}A</button>`).join('');
+    $('mEx').innerHTML = EXAMPLES.map(([a, b, d, say], i) => `<button type="button" data-i="${i}">${esc(say ? '“' + say + '”' : a + ' → ' + b + ' · ' + d + 'A')}</button>`).join('');
   }
-  $('mEx').addEventListener('click', e => { const b = e.target.closest('[data-i]'); if (!b) return; const [a, t, d] = EXAMPLES[+b.dataset.i];
-    const fa = App.aiFindEquip(a), ft = App.aiFindEquip(t); if (fa) $('mFrom').value = fa.id; if (ft) $('mTo').value = ft.id; S.dn = d; sizes(); compose(); });
+  $('mEx').addEventListener('click', e => { const b = e.target.closest('[data-i]'); if (!b) return; const [a, t, d, say] = EXAMPLES[+b.dataset.i];
+    const fa = App.aiFindEquip(a), ft = App.aiFindEquip(t); if (fa) $('mFrom').value = fa.id; if (ft) $('mTo').value = ft.id; S.dn = d; sizes(); compose(); if (say) $('mText').value = say; });
 
   function err(msg, ok) { const m = $('mErr'); if (!msg) { m.hidden = true; return; } m.hidden = false; m.className = 'm-msg' + (ok ? ' ok' : ''); m.textContent = msg; }
-  function validateHint() { $('mGo').disabled = S.busy || !$('mText').value.trim(); err(''); }
+  function validateHint() { $('mGo').disabled = S.busy || !$('mText').value.trim(); }
 
   /* ---------- 명령 해석 · 검증 ---------- */
-  function check(cmd) {
-    if (!cmd || cmd.action !== 'connect') return '체험판은 새 배관 연결만 해 볼 수 있어요. “○○에서 △△까지 25A 배관을 연결해 줘”처럼 적어 주세요.';
+  const TAB = () => PID_LINK.TAB;
+  const lineOf = tag => App.lines.find(l => l.tag === tag && l.tab === TAB() && l.model && l.model.present);
+  const OK_SIZES = () => (PID_LINK.SIZES || SIZES).filter(n => n >= 15 && n <= 300);
+  const HELP = '체험판에서 할 수 있는 말: “○○에서 △△까지 25A로 연결” · “300A로 바꿔줘” · “다른 길로” · “되돌려줘”';
+  function checkConnect(cmd) {
     const a = App.aiFindEquip(cmd.from), b = App.aiFindEquip(cmd.to);
     if (!a) return `시작 장비 “${cmd.from || '?'}”를 기관실 3D에서 찾지 못했어요. 위 목록에서 골라 주세요.`;
     if (!b) return `목적 장비 “${cmd.to || '?'}”를 기관실 3D에서 찾지 못했어요. 위 목록에서 골라 주세요.`;
     if (a.id === b.id) return '시작 장비와 목적 장비가 같아요. 서로 다른 장비를 골라 주세요.';
-    if (cmd.dn && !SIZES.includes(+cmd.dn)) return `${cmd.dn}A는 체험판에서 쓸 수 없는 구경이에요. ${SIZES.join(' · ')}A 중에서 골라 주세요.`;
+    if (cmd.dn && !OK_SIZES().includes(+cmd.dn)) return `${cmd.dn}A는 쓸 수 없는 구경이에요. ${SIZES.join(' · ')}A 중에서 골라 주세요.`;
     return null;
   }
+  // 번호 없이 “300A로 바꿔줘” · “다른 길로”라고 하면 방금 등록한 배관 번호를 붙여서 앱에 보냄
+  function withLine(text, cmd) {
+    if (cmd.line && lineOf(cmd.line)) return { text, cmd, tag: cmd.line };
+    if (cmd.line) return { error: `배관 ${cmd.line}을 기관실 3D에서 찾지 못했어요.` };
+    if (!S.cur || !lineOf(S.cur)) return { error: '먼저 새 배관을 만들고 등록해 주세요. 그 배관의 구경을 바꾸거나 다른 길을 찾을 수 있어요. (기존 배관은 번호를 함께 적어요. 예: 733-443를 50A로 바꿔줘)' };
+    for (const t2 of [`${S.cur}를 ${text}`, `${S.cur} ${text}`]) { let c2 = null; try { c2 = App.chatParse(t2); } catch (e) {} if (c2 && c2.action === cmd.action && c2.line === S.cur) return { text: t2, cmd: c2, tag: S.cur }; }
+    return { error: '배관 번호를 붙여 다시 적어 주세요. 예: ' + S.cur + '를 300A로 바꿔줘' };
+  }
+  const reset3D = () => { if (App.rt.stopAnim) { try { App.rt.stopAnim(); } catch (e) {} App.rt.stopAnim = null; } };
+  async function send(text) { const n0 = (App.chat.log || []).length; await App.chatSend(text); return (App.chat.log || []).slice(n0).reverse().find(m => m.role === 'ai'); }
+  async function grow(label) {
+    sheet('peek');
+    $('mHud').insertAdjacentHTML('beforeend', `<span class="m-chip live" id="mLive">${label}</span>`);
+    const started = await (async () => { for (let i = 0; i < 25; i++) { if (PGTour.animationState().running) return true; await wait(80); } return false; })();
+    if (started) { try { await PGTour.awaitAnimation(); } catch (e) {} } else await wait(700);
+    document.getElementById('mLive')?.remove();
+  }
+  function showJson(o) { $('mJson').innerHTML = esc(JSON.stringify(o, null, 1)).replace(/"(from|to|dn|line|other)": ("?[^,\n]*"?)/g, '"$1": <em>$2</em>'); }
+  const FLOW = { connect: ['규칙 해석', '장비 확인', 'A* 경로 탐색', '간섭 · 이격 검사'], resize: ['규칙 해석', '배관 확인', '구경 변경', '간섭 · 이격 재검사'], reroute: ['규칙 해석', '배관 확인', 'A* 다른 경로', '간섭 · 이격 검사'] };
 
-  /* ---------- 배관 생성 (앱의 AI 설계 도우미와 같은 경로) ---------- */
+  /* ---------- 실행 (앱의 AI 설계 도우미와 같은 경로: App.chatSend) ---------- */
   async function generate() {
     if (S.busy) return;
-    const text = $('mText').value.trim(); if (!text) return;
+    let text = $('mText').value.trim(); if (!text) return;
+    err('');
     let cmd = null;
     try { cmd = App.chatParse(text); } catch (e) {}
-    const problem = check(cmd);
-    if (problem) { err(problem); return; }
-    if (!cmd.dn) cmd.dn = S.dn;
-    S.busy = true; S.cmd = cmd; S.applied = null; S.snap = null; validateHint();
-    $('mGo').textContent = 'A* 경로 탐색 중…';
+    const act = cmd && cmd.action;
+    if (!['connect', 'resize', 'reroute', 'undo'].includes(act)) { err(HELP); return; }
+    let tag = null;
+    if (act === 'connect') { const p = checkConnect(cmd); if (p) { err(p); return; } if (!cmd.dn) cmd.dn = S.dn; }
+    if (act === 'resize' || act === 'reroute') {
+      const w = withLine(text, cmd); if (w.error) { err(w.error); return; }
+      text = w.text; cmd = w.cmd; tag = w.tag;
+      if (act === 'resize') { if (!cmd.dn) { err('바꿀 구경을 함께 적어 주세요. 예: 300A로 바꿔줘'); return; } if (!OK_SIZES().includes(+cmd.dn)) { err(`${cmd.dn}A는 쓸 수 없는 구경이에요. ${OK_SIZES().join(' · ')}A 중에서 골라 주세요.`); return; } }
+    }
+    S.busy = true; validateHint();
+    $('mGo').textContent = act === 'connect' ? 'A* 경로 탐색 중…' : act === 'reroute' ? '다른 경로 찾는 중…' : '처리 중…';
     try {
-      if (App.rt.stopAnim) { try { App.rt.stopAnim(); } catch (e) {} App.rt.stopAnim = null; }
-      App.rd.mode = 'new'; App.rt.sub = 'new'; App.rt.applied = null; App.chat.open = false; App.chat.mode = 'rule';
+      reset3D(); App.chat.open = false; App.chat.mode = 'rule';
       if (App.page !== 'route') App.go('route');
-      const n0 = (App.chat.log || []).length;
-      await App.chatSend(text);
-      const reply = (App.chat.log || []).slice(n0).reverse().find(m => m.role === 'ai');
-      if (!App.rd.cands || !App.rd.cands.length || App.rd.mode !== 'new') {
-        throw Error(reply && reply.text ? reply.text.split('\n')[0] : '기준을 통과하는 경로를 찾지 못했어요. 다른 장비나 구경으로 다시 해 보세요.');
+      if (act === 'connect') {
+        App.rd.mode = 'new'; App.rt.sub = 'new'; App.rt.applied = null;
+        const reply = await send(text);
+        if (!App.rd.cands || !App.rd.cands.length || App.rd.mode !== 'new') throw Error(reply && reply.text ? reply.text.split('\n')[0] : '기준을 통과하는 경로를 찾지 못했어요. 다른 장비나 구경으로 다시 해 보세요.');
+        S.kind = 'connect'; S.applied = null; S.snap = null; S.res = null;
+        showJson({ action: 'connect', from: cmd.from, to: cmd.to, dn: +cmd.dn });
+        $('tRes').disabled = false; renderResult();
+        await grow('배관이 자라는 중');
+      } else if (act === 'resize') {
+        App.rt.sub = 'fix'; App.rt.applied = null;
+        const l = lineOf(tag), dn0 = l.model.dn, c0 = App.linkCheckLine(l, dn0);
+        const reply = await send(text);
+        const l2 = lineOf(tag);
+        if (!l2 || l2.model.dn !== +cmd.dn) throw Error(reply && reply.text ? reply.text.split('\n')[0] : '구경을 바꾸지 못했어요.');
+        const c1 = App.linkCheckLine(l2, l2.model.dn);
+        S.kind = 'resize'; S.applied = null; S.snap = null;
+        S.res = { tag, dn0, dn1: l2.model.dn, clr0: Math.round(c0.clear * 1000), clr1: Math.round(c1.clear * 1000), hits: c1.hits.length, reply: reply && reply.text };
+        showJson({ action: 'resize', line: tag, dn: +cmd.dn });
+        refreshFix(); $('tRes').disabled = false; renderResult(); tab('res'); sheet('mid');
+      } else if (act === 'reroute') {
+        App.rt.sub = 'fix'; App.rt.step = 2; App.rt.applied = null;
+        const reply = await send(text);
+        if (!App.rd.cands || !App.rd.cands.length) throw Error(reply && reply.text ? reply.text.split('\n')[0] : '기준을 통과하는 다른 경로를 찾지 못했어요.');
+        S.kind = 'reroute'; S.applied = null; S.snap = null; S.res = { tag };
+        showJson({ action: 'reroute', line: tag, other: true });
+        $('tRes').disabled = false; renderResult();
+        await grow('다른 경로를 그리는 중');
+      } else {
+        const h0 = App.history.length, n0 = (App.chat.log || []).length;
+        await App.chatSend(text);
+        // 앱이 “되돌릴까요?” 확인창을 띄우면, 관람객이 이미 말로 요청했으니 바로 승인
+        for (let i = 0; i < 15; i++) { const y = document.querySelector('.askbox [data-a="yes"]'); if (y) { y.click(); break; } await wait(60); }
+        await wait(350);
+        const reply = (App.chat.log || []).slice(n0).reverse().find(m => m.role === 'ai');
+        if (S.cur && !lineOf(S.cur)) S.cur = null;
+        S.res = null; S.applied = null; S.snap = null; App.rd.cands = [];
+        try { App.render_route(); } catch (e) {}
+        refreshFix(); updCount();
+        const undone = App.history.slice(h0).some(h => h.type === 'UNDO');   // 앱은 되돌리기를 UNDO 이력으로 남김
+        err(undone ? '↶ 바로 앞 작업(' + (App.history.slice(h0).find(h => h.type === 'UNDO').line || '') + ')을 되돌렸어요. 변경 이력에 UNDO로 남습니다.' : (reply && reply.text ? reply.text.split('\n')[0] : '되돌릴 작업이 없어요.'), undone);
+        $('mText').value = ''; S.busy = false; $('mGo').textContent = '실행'; $('mGo').disabled = true;
+        return;
       }
-      $('mJson').innerHTML = esc(JSON.stringify({ action: 'connect', from: cmd.from, to: cmd.to, dn: +cmd.dn }, null, 1)).replace(/"(from|to|dn)": ("?[^,\n]*"?)/g, '"$1": <em>$2</em>');
-      $('tRes').disabled = false;
-      renderResult();
-      sheet('peek');
-      $('mHud').insertAdjacentHTML('beforeend', '<span class="m-chip live" id="mLive">배관이 자라는 중</span>');
-      try { await PGTour.awaitAnimation(); } catch (e) {}
-      document.getElementById('mLive')?.remove();
-      tab('res'); sheet('mid');
+      if (act !== 'resize') { tab('res'); sheet('mid'); }
     } catch (e) {
       err(String(e.message || e));
     } finally {
-      S.busy = false; $('mGo').textContent = '배관 생성'; validateHint();
+      S.busy = false; $('mGo').textContent = '실행'; validateHint();
     }
   }
   $('mGo').addEventListener('click', generate);
+  function run(text) { $('mText').value = text; tab('make'); validateHint(); generate(); }
 
-  function snap() { const C = App.rd.cands || []; if (C.length && App.rd.mode === 'new') S.snap = { C: C.map(x => ({ name: x.name, rec: x.rec, m: Object.assign({}, x.m) })), k: App.rd.chosen || 0 }; }
+  function snap() { const C = App.rd.cands || []; if (C.length) S.snap = { C: C.map(x => ({ name: x.name, rec: x.rec, m: Object.assign({}, x.m) })), k: App.rd.chosen || 0, base: App.rd.base && App.rd.base.m ? Object.assign({}, App.rd.base.m) : null }; }
+  const tile = (lbl, v, u, note, cls) => `<div class="m-kpi"><span>${lbl}</span><b>${v}<small>${u}</small></b>${note ? `<em class="${cls}">${note}</em>` : ''}</div>`;
+  const inch = n => IN[n] ? ' (' + IN[n] + ')' : '';
+  function nextChips(list) { $('mNextWrap').hidden = !list.length; $('mNext').innerHTML = list.map(t => `<button type="button" data-say="${esc(t)}">“${esc(t)}”</button>`).join(''); }
   function renderResult() {
+    const std = Math.round(App.rd.P.clear * 1000), K = S.kind;
+    $('mFlow').innerHTML = FLOW[K].map(x => `<b>${x}</b>`).join('→');
+    $('mReply').hidden = true; $('mDone').hidden = true;
+    if (K === 'resize') {
+      const r = S.res;
+      $('mCandLbl').hidden = true; $('mCands').innerHTML = ''; $('mBtns').hidden = true;
+      $('mKpis').innerHTML =
+        tile('구경 · ' + r.tag, r.dn0 + '→' + r.dn1, 'A', (IN[r.dn0] || r.dn0 + 'A') + ' → ' + (IN[r.dn1] || r.dn1 + 'A'), '') +
+        tile('간섭', r.hits, '건', r.hits ? '주변과 닿음 → 다른 길 찾기' : '닿는 곳 없음', r.hits ? 'bad' : 'ok') +
+        tile('최소 이격 (전)', r.clr0, 'mm', '', '') +
+        tile('최소 이격 (후)', r.clr1, 'mm', r.clr1 >= std ? `기준 ${std} mm 통과` : `기준 ${std} mm 미달`, r.clr1 >= std ? 'ok' : 'bad');
+      const d = $('mDone'); d.hidden = false; d.className = (r.hits || r.clr1 < std) ? 'm-msg' : 'm-msg ok';
+      d.textContent = (r.hits || r.clr1 < std) ? `${r.tag}를 ${r.dn1}A로 키웠더니 주변 배관 · 장비와 ${r.hits ? '간섭이 생겼어요' : '이격이 부족해요'}. “다른 길로”로 새 경로를 찾아 보세요.` : `${r.tag} 구경을 ${r.dn1}A로 바꿨어요. ${r.dn1 > r.dn0 ? '굵어져도 ' : ''}주변과 닿지 않고 이격 기준도 지켜요. 변경 이력에 RESIZE로 남습니다.`;
+      nextChips(['다른 길로', '되돌려줘']);
+      return;
+    }
+    $('mBtns').hidden = false; $('mCandLbl').hidden = false;
     if (!S.applied) snap();
-    const C = (S.snap && S.snap.C) || [], k = S.snap ? S.snap.k : 0, c = C[k];
+    const C = (S.snap && S.snap.C) || [], k = S.snap ? S.snap.k : 0, c = C[k], base = S.snap && S.snap.base;
+    $('mCandLbl').textContent = K === 'reroute' ? `${S.res.tag} · 지금 경로와 다른 후보` : '기준 통과 후보';
     $('mCands').innerHTML = C.map((x, i) => `<button type="button" data-c="${i}" class="${i === k ? 'on' : ''}">${esc(x.name.replace('안', '후보'))}${x.rec ? '<small>추천</small>' : '<small>&nbsp;</small>'}</button>`).join('');
     if (!c) { $('mKpis').innerHTML = ''; return; }
-    const m = c.m, std = Math.round(App.rd.P.clear * 1000), clr = Math.round(Math.max(0, m.clear) * 1000);
-    const tile = (lbl, v, u, note, cls) => `<div class="m-kpi"><span>${lbl}</span><b>${v}<small>${u}</small></b>${note ? `<em class="${cls}">${note}</em>` : ''}</div>`;
+    const m = c.m, clr = Math.round(Math.max(0, m.clear) * 1000), was = v => (K === 'reroute' && base ? v : '');
     $('mKpis').innerHTML =
-      tile('배관 길이', m.L.toFixed(1), 'm', '', '') +
-      tile('엘보(굽힘)', m.B, '개', '', '') +
+      tile('배관 길이', m.L.toFixed(1), 'm', was(base && ('지금 ' + base.L.toFixed(1) + ' m')), '') +
+      tile('엘보(굽힘)', m.B, '개', was(base && ('지금 ' + base.B + '개')), '') +
       tile('간섭', m.clash, '건', m.clash ? '장애물과 닿음' : '닿는 곳 없음', m.clash ? 'bad' : 'ok') +
       tile('최소 이격', clr, 'mm', clr >= std ? `기준 ${std} mm 통과` : `기준 ${std} mm 미달`, clr >= std ? 'ok' : 'bad');
+    const label = c.name.replace('안', '후보');
     $('mApply').disabled = !!S.applied;
-    $('mApply').textContent = S.applied ? '등록됨' : `${c.name.replace('안', '후보')}로 등록`;
+    $('mApply').textContent = S.applied ? (K === 'reroute' ? '적용됨' : '등록됨') : (K === 'reroute' ? `${label} 적용` : `${label}로 등록`);
     const d = $('mDone');
-    if (S.applied) { d.hidden = false; d.className = 'm-msg ok'; d.textContent = `새 배관 ${S.applied} 등록 완료 · P&ID에 없는 새 배관으로 표시되고 변경 이력에 NEW로 남습니다.`; } else d.hidden = true;
+    if (S.applied) {
+      d.hidden = false; d.className = 'm-msg ok';
+      d.textContent = K === 'reroute' ? `${S.applied}에 ${label} 경로를 적용했어요. 변경 이력에 REROUTE로 남습니다.` : `새 배관 ${S.applied} 등록 완료 · P&ID에 없는 새 배관으로 표시되고 변경 이력에 NEW로 남습니다.`;
+      nextChips(K === 'reroute' ? ['되돌려줘'] : ['300A로 바꿔줘', '다른 길로']);
+    } else nextChips([]);
   }
   $('mCands').addEventListener('click', e => { const b = e.target.closest('[data-c]'); if (!b || S.applied) return; App.rd.chosen = +b.dataset.c; try { App.render_route(); } catch (er) {} snap(); renderResult(); });
+  $('mNext').addEventListener('click', e => { const b = e.target.closest('[data-say]'); if (b && !S.busy) run(b.dataset.say); });
+  $('mQuick').addEventListener('click', e => { const b = e.target.closest('[data-say]'); if (b && !S.busy) run(b.dataset.say); });
 
   $('mReplay').addEventListener('click', async () => {
     const m = [...(App.chat.log || [])].reverse().find(x => x.anim); if (!m || S.busy) return;
@@ -12258,20 +12356,25 @@ button.m-chip{pointer-events:auto;font-family:inherit;cursor:pointer}
     try { App.aiAnimate(m.anim, m.dn); await PGTour.awaitAnimation(); } catch (e) {}
     S.busy = false; sheet('mid');
   });
+  const updCount = () => { $('mLines').textContent = App.lines.filter(l => l.tab === TAB() && l.model && l.model.present).length; };
+  function refreshFix() {
+    $('mFix').hidden = !S.cur; if (!S.cur) return;
+    $('mCur').textContent = S.cur + ' · ' + (lineOf(S.cur) ? lineOf(S.cur).model.dn + 'A' : '');
+    $('mQuick').innerHTML = ['300A로 바꿔줘', '다른 길로', '되돌려줘'].map(t => `<button type="button" data-say="${t}">“${t}”</button>`).join('');
+  }
   $('mApply').addEventListener('click', () => {
     if (S.applied || !App.rd.cands.length) return;
     snap();
     const before = new Set(App.lines.map(l => l.id));
-    try { App.applyRoute(); } catch (e) { err('등록하지 못했어요: ' + e.message); return; }
-    const nl = App.lines.find(l => !before.has(l.id));
-    S.applied = nl ? nl.tag : '신규 배관';
-    $('mLines').textContent = App.lines.filter(l => l.tab === PID_LINK.TAB && l.model && l.model.present).length;
-    renderResult();
+    try { App.applyRoute(); } catch (e) { err('적용하지 못했어요: ' + e.message); return; }
+    if (S.kind === 'reroute') S.applied = S.res.tag;
+    else { const nl = App.lines.find(l => !before.has(l.id)); S.applied = nl ? nl.tag : '신규 배관'; if (nl) S.cur = nl.tag; }
+    updCount(); refreshFix(); renderResult();
   });
   $('mAgain').addEventListener('click', () => {
-    App.rd.cands = []; S.snap = null; App.rt.nstep = 1; App.rd.mode = 'new'; App.rt.sub = 'new';
+    reset3D(); App.rd.cands = []; S.snap = null; App.rt.nstep = 1; App.rd.mode = 'new'; App.rt.sub = 'new';
     try { App.render_route(); } catch (e) {}
-    S.applied = null; tab('make'); sheet('mid');
+    S.applied = null; compose(); tab('make'); sheet('mid');
   });
   $('mToMake').addEventListener('click', () => tab('make'));
   document.body.classList.add('m-nolabel');
@@ -12280,7 +12383,7 @@ button.m-chip{pointer-events:auto;font-family:inherit;cursor:pointer}
   /* 3D에서 장비를 누르면 목록에도 반영 (앱의 장비 선택 슬롯과 연결) */
   let lastNf = null, lastNt = null;
   setInterval(() => {
-    if (!window.App || !App.rt || S.busy) return;
+    if (typeof App === 'undefined' || !App.rt || S.busy || S.kind !== 'connect') return;
     if (App.rt.nf && App.rt.nf !== lastNf && eqById(App.rt.nf)) { lastNf = App.rt.nf; if ($('mFrom').value !== App.rt.nf) { $('mFrom').value = App.rt.nf; compose(); } }
     if (App.rt.nt && App.rt.nt !== lastNt && eqById(App.rt.nt)) { lastNt = App.rt.nt; if ($('mTo').value !== App.rt.nt) { $('mTo').value = App.rt.nt; compose(); } }
   }, 600);
